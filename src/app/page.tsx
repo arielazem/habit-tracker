@@ -13,12 +13,7 @@ export default function HomePage() {
   const [identities, setIdentities] = useState<IdentityGoal[]>([])
   const [habits, setHabits] = useState<Habit[]>([])
   const [newIdentity, setNewIdentity] = useState('')
-  const [selectedIdentity, setSelectedIdentity] = useState('')
-  const [newHabitText, setNewHabitText] = useState('')
-  const [targetCount, setTargetCount] = useState(1)
-  const [targetPeriod, setTargetPeriod] = useState<'week' | 'month'>('week')
   const [editingHabitId, setEditingHabitId] = useState<string | null>(null)
-  const [habitEmoji, setHabitEmoji] = useState('')
   const [editingHabitEmoji, setEditingHabitEmoji] = useState('')
   const [showHabitEmojiPicker, setShowHabitEmojiPicker] = useState(false)  
   const [showEditHabitEmojiPickerId, setShowEditHabitEmojiPickerId] = useState<string | null>(null)
@@ -33,6 +28,22 @@ export default function HomePage() {
   const [editingIdentityText, setEditingIdentityText] = useState('')
   const [calendarDate, setCalendarDate] = useState(new Date())
   const [expandedIdentities, setExpandedIdentities] = useState<string[]>([])
+  const [habitForms, setHabitForms] = useState<Record<string, {
+    text: string,
+    targetCount: number,
+    targetPeriod: 'week' | 'month',
+    emoji: string,
+  }>>({})
+  
+  const initForm = (id: string) => {
+    if (!habitForms[id]) {
+      setHabitForms(prev => ({
+        ...prev,
+        [id]: { text: '', targetCount: 1, targetPeriod: 'week', emoji: '' },
+      }))
+    }
+  }
+  
 
   useEffect(() => {
     const storedIdentities = localStorage.getItem('identities')
@@ -58,7 +69,7 @@ export default function HomePage() {
     setIdentities([...identities, { id: newId, label: `${identityEmoji} ${newIdentity.trim()}`}])
     setNewIdentity('')
     setIdentityEmoji('')
-    setShowEmojiPicker(false)
+    setShowNewEmojiPicker(false)
   }
 
   const deleteIdentity = (id: string) => {
@@ -80,24 +91,33 @@ export default function HomePage() {
     setEditingIdentityText('')
   }
 
-  const addHabit = () => {
-    if (!selectedIdentity || !newHabitText.trim()) return
+  const addHabit = (identityId: string) => {
+    const form = habitForms[identityId]
+    if (!form?.text?.trim()) return
+  
     const newHabit: Habit = {
       id: uuidv4(),
-      identityId: selectedIdentity,
-      text: newHabitText.trim(),
-      targetCount,
-      targetPeriod,
+      identityId,
+      text: form.text.trim(),
+      targetCount: form.targetCount,
+      targetPeriod: form.targetPeriod,
       logs: [],
-      emoji: habitEmoji,
+      emoji: form.emoji,
     }
+  
     setHabits([...habits, newHabit])
-    setNewHabitText('')
-    setTargetCount(1)
-    setTargetPeriod('week')
-    setHabitEmoji('')
+    setHabitForms(prev => ({
+      ...prev,
+      [identityId]: {
+        text: '',
+        targetCount: 1,
+        targetPeriod: 'week',
+        emoji: '',
+      },
+    }))
     setShowHabitEmojiPicker(false)
   }
+  
 
   const logOccurrence = (habitId: string, date: Date = calendarDate) => {
     const day = date.toDateString()
@@ -230,49 +250,13 @@ export default function HomePage() {
     setShowHabitEmojiPicker(false)
   }
 
-  const getCompletionPercentage = (habit: Habit) => {
-    const now = new Date()
-    const logs = (habit.logs || []).map(log => new Date(log.date))
-  
-    if (viewMode === 'week') {
-      const startOfWeek = new Date(now)
-      startOfWeek.setDate(now.getDate() - now.getDay())
-      const endOfWeek = new Date(startOfWeek)
-      endOfWeek.setDate(startOfWeek.getDate() + 7)
-  
-      const count = logs.filter(date => date >= startOfWeek && date < endOfWeek).length
-      return Math.min(100, Math.round((count / habit.targetCount) * 100))
-    }
-  
-    // Month-to-date logic
-    const year = now.getFullYear()
-    const month = now.getMonth()
-    const startOfMonth = new Date(year, month, 1)
-  
-    const count = logs.filter(date => date >= startOfMonth && date <= now).length
-  
-    // Estimate how many times the habit should have been done by now
-    const daysElapsed = now.getDate()
-    const daysInMonth = new Date(year, month + 1, 0).getDate()
-    const expectedByNow = Math.round((daysElapsed / daysInMonth) * habit.targetCount)
-  
-    return Math.min(100, Math.round((count / Math.max(1, expectedByNow)) * 100))
-  }  
-
-  const getGoalProgress = (identityId: string) => {
-    const relatedHabits = habits.filter(h => h.identityId === identityId)
-    const total = relatedHabits.length
-    const progress = relatedHabits.reduce((sum, h) => sum + getCompletionPercentage(h), 0)
-    return total ? Math.round(progress / total) : 0
-  }
-
   const getStreak = (habit: Habit) => {
     const sortedDates = (habit.logs || [])
       .map(log => new Date(log.date))
       .sort((a, b) => b.getTime() - a.getTime())
     let streak = 0
     let current = new Date()
-    for (let date of sortedDates) {
+    for (const date of sortedDates) {
       const diff = Math.floor((current.getTime() - date.getTime()) / (1000 * 60 * 60 * 24))
       if (diff === 0 || diff === 1) {
         streak++
@@ -467,36 +451,87 @@ export default function HomePage() {
                   </div>
                 </div>
               ))}
-
               <div className="flex items-center gap-2">
-                <button onClick={() => setShowHabitEmojiPicker(!showHabitEmojiPicker)} className="text-2xl">
-                  {habitEmoji || '📝'}
+                <button
+                  onClick={() => {
+                    initForm(identity.id)
+                    setHabitForms(prev => ({
+                      ...prev,
+                      [identity.id]: {
+                        ...prev[identity.id],
+                        emoji: prev[identity.id]?.emoji || '📝'
+                      }
+                    }))
+                    setShowHabitEmojiPicker(!showHabitEmojiPicker)
+                  }}
+                  className="text-2xl"
+                >
+                  {habitForms[identity.id]?.emoji || '📝'}
                 </button>
+
                 <input
-                  type="text"
-                  placeholder="Add new habit"
-                  value={newHabitText}
-                  onChange={e => setNewHabitText(e.target.value)}
-                  className="border px-2 py-1 rounded flex-1"
+                  value={habitForms[identity.id]?.text || ''}
+                  onChange={e =>
+                    setHabitForms(prev => ({
+                      ...prev,
+                      [identity.id]: {
+                        ...prev[identity.id],
+                        text: e.target.value,
+                      },
+                    }))
+                  }
                 />
+
                 <input
                   type="number"
-                  value={targetCount}
-                  onChange={e => setTargetCount(parseInt(e.target.value))}
+                  value={habitForms[identity.id]?.targetCount || 1}
+                  onChange={e =>
+                    setHabitForms(prev => ({
+                      ...prev,
+                      [identity.id]: {
+                        ...prev[identity.id],
+                        targetCount: parseInt(e.target.value),
+                      },
+                    }))
+                  }
                   className="border px-2 py-1 w-20 rounded"
                 />
+
                 <select
-                  value={targetPeriod}
-                  onChange={e => setTargetPeriod(e.target.value as 'week' | 'month')}
+                  value={habitForms[identity.id]?.targetPeriod || 'week'}
+                  onChange={e =>
+                    setHabitForms(prev => ({
+                      ...prev,
+                      [identity.id]: {
+                        ...prev[identity.id],
+                        targetPeriod: e.target.value as 'week' | 'month',
+                      },
+                    }))
+                  }
                   className="border p-1 rounded"
                 >
                   <option value="week">/week</option>
                   <option value="month">/month</option>
                 </select>
-                <button onClick={() => { setSelectedIdentity(identity.id); addHabit(); }}>➕</button>
+
+                <button onClick={() => addHabit(identity.id)}>➕</button>
               </div>
+
               {showHabitEmojiPicker && (
-                <div className="mt-2"><EmojiPicker onEmojiClick={(e) => setHabitEmoji(e.emoji)} /></div>
+                <div className="mt-2">
+                  <EmojiPicker
+                    onEmojiClick={(e) => {
+                      setHabitForms(prev => ({
+                        ...prev,
+                        [identity.id]: {
+                          ...prev[identity.id],
+                          emoji: e.emoji,
+                        },
+                      }))
+                      setShowHabitEmojiPicker(false)
+                    }}
+                  />
+                </div>
               )}
             </div>
           )}
@@ -505,7 +540,15 @@ export default function HomePage() {
 
       <div className="bg-white rounded-2xl shadow-md p-4">
         <h2 className="text-xl font-bold mb-4">Habit Calendar</h2>
-        <Calendar onChange={setCalendarDate} value={calendarDate} />
+        <Calendar
+          onChange={(value) => {
+            if (value instanceof Date) {
+              setCalendarDate(value)
+            }
+          }}
+          value={calendarDate}
+        />
+
 
         <h3 className="text-md font-semibold mt-4 mb-2">Logs for {calendarDate.toDateString()}:</h3>
         {habits
